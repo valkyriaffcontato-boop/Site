@@ -6,10 +6,10 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
-// ⚙️ Cole seus dados do Base44 aqui
+// ⚙️ Lê as variáveis do Railway se existirem, caso contrário usa as strings fixas
 const API_URL = 'https://api.base44.com/v1';
-const APP_ID = 'SEU_APP_ID';
-const API_KEY = 'SUA_API_KEY';
+const APP_ID = process.env.APP_ID || 'SEU_APP_ID';
+const API_KEY = process.env.API_KEY || 'SUA_API_KEY';
 const CHECK_INTERVAL_SECONDS = 30;
 
 // 📋 Comandos do bot (adicione mais aqui)
@@ -46,21 +46,50 @@ const COMMANDS = {
   },
 };
 
-// 🔌 API Base44
+// 🔌 API Base44 - Cabeçalhos de autenticação
 const headers = { 'Content-Type': 'application/json', 'x-app-id': APP_ID, 'x-api-key': API_KEY };
 
 async function base44Get(entity, filter = {}) {
-  const res = await fetch(`${API_URL}/entities/${entity}/list`, {
-    method: 'POST', headers, body: JSON.stringify({ filter, limit: 100 }),
-  });
-  const data = await res.json();
-  return data.records || [];
+  try {
+    const res = await fetch(`${API_URL}/entities/${entity}/list`, {
+      method: 'POST', headers, body: JSON.stringify({ filter, limit: 100 }),
+    });
+
+    // Se o servidor retornar algum erro (como 401, 404, etc), lemos como texto
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`⚠️ Erro na resposta do Base44 (Status ${res.status}):`);
+      console.error(errorText.substring(0, 300)); // Limita a exibição do erro HTML
+      return [];
+    }
+
+    const text = await res.text();
+    try {
+      const data = JSON.parse(text);
+      return data.records || [];
+    } catch (jsonErr) {
+      console.error(`⚠️ O Base44 retornou um conteúdo que não é JSON válido:`);
+      console.error(text.substring(0, 300));
+      return [];
+    }
+  } catch (err) {
+    console.error(`⚠️ Erro ao tentar conectar com a API do Base44 (${entity}):`, err.message);
+    return [];
+  }
 }
 
 async function base44Update(entity, id, data) {
-  await fetch(`${API_URL}/entities/${entity}/${id}`, {
-    method: 'PUT', headers, body: JSON.stringify(data),
-  });
+  try {
+    const res = await fetch(`${API_URL}/entities/${entity}/${id}`, {
+      method: 'PUT', headers, body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`⚠️ Erro ao atualizar ${entity} (Status ${res.status}):`, errorText.substring(0, 200));
+    }
+  } catch (err) {
+    console.error(`⚠️ Erro de rede ao tentar atualizar ${entity}:`, err.message);
+  }
 }
 
 // 🤖 Gerenciador de bots
@@ -110,8 +139,13 @@ async function startBot(botData) {
     await base44Update('BotProfile', botData.id, { status: 'error', error_message: err.message });
   });
 
-  await client.login(botData.bot_token);
-  activeBots.set(botData.id, client);
+  try {
+    await client.login(botData.bot_token);
+    activeBots.set(botData.id, client);
+  } catch (loginErr) {
+    console.error(`⚠️ Erro ao tentar logar o bot "${botData.bot_name}":`, loginErr.message);
+    await base44Update('BotProfile', botData.id, { status: 'error', error_message: 'Token inválido ou erro de login' });
+  }
 }
 
 async function stopBot(botId) {
@@ -125,16 +159,20 @@ async function stopBot(botId) {
 // 🔄 Loop de verificação
 async function checkLoop() {
   console.log(`🔍 [${new Date().toLocaleTimeString('pt-BR')}] Verificando...`);
-  const bots = await getActiveBotProfiles();
-  for (const bot of bots) {
-    const online = shouldBeOnline(bot);
-    if (online && !activeBots.has(bot.id)) await startBot(bot);
-    else if (!online && activeBots.has(bot.id)) await stopBot(bot.id);
+  try {
+    const bots = await getActiveBotProfiles();
+    for (const bot of bots) {
+      const online = shouldBeOnline(bot);
+      if (online && !activeBots.has(bot.id)) await startBot(bot);
+      else if (!online && activeBots.has(bot.id)) await stopBot(bot.id);
+    }
+    for (const [id] of activeBots) {
+      if (!bots.find(b => b.id === id)) await stopBot(id);
+    }
+    console.log(`📊 Bots ativos: ${activeBots.size}`);
+  } catch (loopErr) {
+    console.error("⚠️ Erro durante a execução do loop de verificação:", loopErr.message);
   }
-  for (const [id] of activeBots) {
-    if (!bots.find(b => b.id === id)) await stopBot(id);
-  }
-  console.log(`📊 Bots ativos: ${activeBots.size}`);
 }
 
 console.log('🤖 Discord Bot Runner iniciado!');
