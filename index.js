@@ -7,10 +7,16 @@ const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 // ⚙️ Configurações do Base44 (Lê do Railway se existirem)
-const API_URL = 'https://api.base44.com/v1';
 const APP_ID = process.env.APP_ID || 'SEU_APP_ID';
 const API_KEY = process.env.API_KEY || 'SUA_API_KEY';
 const CHECK_INTERVAL_SECONDS = 30;
+
+// 🔍 DIAGNÓSTICO DE INICIALIZAÇÃO (Exibe se as variáveis do Railway estão ativas)
+console.log('--- 🔍 DIAGNÓSTICO DE INICIALIZAÇÃO ---');
+console.log(`Node.js version: ${process.version}`);
+console.log(`APP_ID detectado: ${process.env.APP_ID ? `${process.env.APP_ID.substring(0, 4)}...${process.env.APP_ID.substring(process.env.APP_ID.length - 4)}` : '❌ NÃO DETECTADO no Railway (Usando padrão "SEU_APP_ID")'}`);
+console.log(`API_KEY detectada: ${process.env.API_KEY ? `${process.env.API_KEY.substring(0, 4)}...${process.env.API_KEY.substring(process.env.API_KEY.length - 4)}` : '❌ NÃO DETECTADA no Railway (Usando padrão "SUA_API_KEY")'}`);
+console.log('----------------------------------------');
 
 // 📋 Comandos do bot (adicione mais aqui)
 const COMMANDS = {
@@ -46,17 +52,20 @@ const COMMANDS = {
   },
 };
 
-// Cabeçalhos de autenticação oficiais do Base44
+// Cabeçalhos de autenticação completos para evitar bloqueio do gateway do Base44
 const headers = {
   'Content-Type': 'application/json',
-  'Authorization': `Bearer ${API_KEY}`, // Autenticação padrão Base44 /v1
-  'x-app-id': APP_ID                    // Identificador do seu aplicativo
+  'Authorization': `Bearer ${API_KEY}`,
+  'api_key': API_KEY,
+  'x-api-key': API_KEY,
+  'x-app-id': APP_ID
 };
 
 async function base44Get(entity) {
   try {
-    // URL oficial do Base44 para listar registros de uma entidade
-    const url = `${API_URL}/entities/${entity}`;
+    // URL estruturada por ID de aplicativo
+    const url = `https://api.base44.com/api/apps/${APP_ID}/entities/${entity}`;
+    console.log(`[Base44] Efetuando requisição em: ${url}`);
     
     const res = await fetch(url, {
       method: 'GET',
@@ -73,7 +82,6 @@ async function base44Get(entity) {
     const text = await res.text();
     try {
       const data = JSON.parse(text);
-      // Extrai os registros lidando com os diferentes formatos de retorno (array puro, records, etc)
       return Array.isArray(data) ? data : (data.records || data.items || data.data || []);
     } catch (jsonErr) {
       console.error(`⚠️ O Base44 retornou um conteúdo que não é JSON válido:`);
@@ -88,11 +96,10 @@ async function base44Get(entity) {
 
 async function base44Update(entity, id, data) { 
   try {
-    // URL oficial para atualizar um registro de entidade por ID
-    const url = `${API_URL}/entities/${entity}/${id}`;
+    const url = `https://api.base44.com/api/apps/${APP_ID}/entities/${entity}/${id}`;
     
     const res = await fetch(url, {
-      method: 'PATCH', // O Base44 utiliza PATCH para atualizações parciais
+      method: 'PATCH',
       headers: headers,
       body: JSON.stringify(data),
     });
