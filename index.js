@@ -6,8 +6,7 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
-// ⚙️ Lê as variáveis do Railway se existirem, caso contrário usa as strings fixas
-const API_URL = 'https://api.base44.com/v1';
+// ⚙️ Configurações prioritárias do Railway
 const APP_ID = process.env.APP_ID || 'SEU_APP_ID';
 const API_KEY = process.env.API_KEY || 'SUA_API_KEY';
 const CHECK_INTERVAL_SECONDS = 30;
@@ -46,27 +45,34 @@ const COMMANDS = {
   },
 };
 
-// 🔌 API Base44 - Cabeçalhos de autenticação
-const headers = { 'Content-Type': 'application/json', 'x-app-id': APP_ID, 'x-api-key': API_KEY };
-
+// 🔌 API Base44 - Funções com a URL e Autenticação Corretas
 async function base44Get(entity, filter = {}) {
   try {
-    const res = await fetch(`${API_URL}/entities/${entity}/list`, {
-      method: 'POST', headers, body: JSON.stringify({ filter, limit: 100 }),
+    // Formato de rota padrão para busca de entidades no Base44
+    const url = `https://api.base44.com/api/apps/${APP_ID}/entities/${entity}`;
+    
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'api_key': API_KEY,       // Cabeçalho padrão de autenticação do Base44
+        'x-api-key': API_KEY,     // Cabeçalho alternativo por compatibilidade
+        'x-app-id': APP_ID
+      }
     });
 
-    // Se o servidor retornar algum erro (como 401, 404, etc), lemos como texto
     if (!res.ok) {
       const errorText = await res.text();
       console.error(`⚠️ Erro na resposta do Base44 (Status ${res.status}):`);
-      console.error(errorText.substring(0, 300)); // Limita a exibição do erro HTML
+      console.error(errorText.substring(0, 300));
       return [];
     }
 
     const text = await res.text();
     try {
       const data = JSON.parse(text);
-      return data.records || [];
+      // Tolerância a variações de retorno de listas da API
+      return Array.isArray(data) ? data : (data.records || data.items || data.data || []);
     } catch (jsonErr) {
       console.error(`⚠️ O Base44 retornou um conteúdo que não é JSON válido:`);
       console.error(text.substring(0, 300));
@@ -80,9 +86,19 @@ async function base44Get(entity, filter = {}) {
 
 async function base44Update(entity, id, data) {
   try {
-    const res = await fetch(`${API_URL}/entities/${entity}/${id}`, {
-      method: 'PUT', headers, body: JSON.stringify(data),
+    const url = `https://api.base44.com/api/apps/${APP_ID}/entities/${entity}/${id}`;
+    
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'api_key': API_KEY,
+        'x-api-key': API_KEY,
+        'x-app-id': APP_ID
+      },
+      body: JSON.stringify(data),
     });
+    
     if (!res.ok) {
       const errorText = await res.text();
       console.error(`⚠️ Erro ao atualizar ${entity} (Status ${res.status}):`, errorText.substring(0, 200));
