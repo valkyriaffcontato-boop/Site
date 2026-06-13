@@ -6,7 +6,8 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
-// ⚙️ Configurações prioritárias do Railway
+// ⚙️ Configurações do Base44 (Lê do Railway se existirem)
+const API_URL = 'https://api.base44.com/v1';
 const APP_ID = process.env.APP_ID || 'SEU_APP_ID';
 const API_KEY = process.env.API_KEY || 'SUA_API_KEY';
 const CHECK_INTERVAL_SECONDS = 30;
@@ -45,20 +46,21 @@ const COMMANDS = {
   },
 };
 
-// 🔌 API Base44 - Funções com a URL e Autenticação Corretas
-async function base44Get(entity, filter = {}) {
+// Cabeçalhos de autenticação oficiais do Base44
+const headers = {
+  'Content-Type': 'application/json',
+  'Authorization': `Bearer ${API_KEY}`, // Autenticação padrão Base44 /v1
+  'x-app-id': APP_ID                    // Identificador do seu aplicativo
+};
+
+async function base44Get(entity) {
   try {
-    // Formato de rota padrão para busca de entidades no Base44
-    const url = `https://api.base44.com/api/apps/${APP_ID}/entities/${entity}`;
+    // URL oficial do Base44 para listar registros de uma entidade
+    const url = `${API_URL}/entities/${entity}`;
     
     const res = await fetch(url, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'api_key': API_KEY,       // Cabeçalho padrão de autenticação do Base44
-        'x-api-key': API_KEY,     // Cabeçalho alternativo por compatibilidade
-        'x-app-id': APP_ID
-      }
+      headers: headers
     });
 
     if (!res.ok) {
@@ -71,7 +73,7 @@ async function base44Get(entity, filter = {}) {
     const text = await res.text();
     try {
       const data = JSON.parse(text);
-      // Tolerância a variações de retorno de listas da API
+      // Extrai os registros lidando com os diferentes formatos de retorno (array puro, records, etc)
       return Array.isArray(data) ? data : (data.records || data.items || data.data || []);
     } catch (jsonErr) {
       console.error(`⚠️ O Base44 retornou um conteúdo que não é JSON válido:`);
@@ -79,23 +81,19 @@ async function base44Get(entity, filter = {}) {
       return [];
     }
   } catch (err) {
-    console.error(`⚠️ Erro ao tentar conectar com a API do Base44 (${entity}):`, err.message);
+    console.error(`⚠️ Erro ao conectar com o Base44 (${entity}):`, err.message);
     return [];
   }
 }
 
-async function base44Update(entity, id, data) {
+async function base44Update(entity, id, data) { 
   try {
-    const url = `https://api.base44.com/api/apps/${APP_ID}/entities/${entity}/${id}`;
+    // URL oficial para atualizar um registro de entidade por ID
+    const url = `${API_URL}/entities/${entity}/${id}`;
     
     const res = await fetch(url, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'api_key': API_KEY,
-        'x-api-key': API_KEY,
-        'x-app-id': APP_ID
-      },
+      method: 'PATCH', // O Base44 utiliza PATCH para atualizações parciais
+      headers: headers,
       body: JSON.stringify(data),
     });
     
@@ -112,8 +110,8 @@ async function base44Update(entity, id, data) {
 const activeBots = new Map();
 
 async function getActiveBotProfiles() {
-  const bots = await base44Get('BotProfile', {});
-  const users = await base44Get('UserPlan', {});
+  const bots = await base44Get('BotProfile');
+  const users = await base44Get('UserPlan');
   return bots.map(bot => ({
     ...bot,
     plan: (users.find(p => p.user_id === bot.user_id) || {}).plan || 'free',
@@ -181,7 +179,7 @@ async function checkLoop() {
       const online = shouldBeOnline(bot);
       if (online && !activeBots.has(bot.id)) await startBot(bot);
       else if (!online && activeBots.has(bot.id)) await stopBot(bot.id);
-    }
+    } 
     for (const [id] of activeBots) {
       if (!bots.find(b => b.id === id)) await stopBot(id);
     }
